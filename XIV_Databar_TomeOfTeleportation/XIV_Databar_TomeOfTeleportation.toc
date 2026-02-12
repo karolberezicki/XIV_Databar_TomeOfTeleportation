@@ -1,0 +1,9 @@
+## Interface: 120001
+## Title: XIV_Databar - Tome of Teleportation
+## Notes: Tome of Teleportation integration for XIV_Databar Continued. Adds a hearthstone module with right-click to open Tome of Teleportation.
+## Author: Senoy
+## Version: 1.0.0
+## OptionalDeps: XIV_Databar_Continued, XIV_Databar-Continued
+## DefaultState: enabled
+
+tele.lua
