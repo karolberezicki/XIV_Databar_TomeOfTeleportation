@@ -4,21 +4,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-XIV_Databar TomeOfTeleportation is a standalone companion addon for [XIV_Databar Continued](https://github.com/Starter-WoW/XIV_Databar-Continued). It replaces the Travel module with a simplified hearthstone button that integrates with the [Tome of Teleportation](https://www.curseforge.com/wow/addons/tomeofteleportation) addon.
+XIV_Databar TomeOfTeleportation is a lightweight companion addon for [XIV_Databar Continued](https://github.com/Starter-WoW/XIV_Databar-Continued). It hooks into the Travel module's hearthstone button to add a right-click shortcut that runs a configurable slash command (default: `/tele` for Tome of Teleportation).
 
 - **Language**: Lua 5.1 with WoW API
 - **Parent addon**: XIV_Databar Continued (required)
-- **External addon**: Tome of Teleportation (required for right-click functionality)
+- **External addon**: Any addon that registers a slash command (e.g., Tome of Teleportation for `/tele`)
 
 ## How It Works
 
-- **Left-click**: Uses the hearthstone (supports random hearthstone and hearthstone selection from XIV_Databar settings)
-- **Right-click**: Opens Tome of Teleportation via `SlashCmdList["TELEPORTER"]`
-- **Tooltip**: Shows hearthstone cooldown and click instructions
+- **Left-click**: Uses the hearthstone (handled entirely by Travel module)
+- **Right-click**: Runs the configured slash command (default: `/tele`)
+- **Tooltip**: Appends "Right-Click: /tele" when hovering the hearthstone button
+- **Config**: Enable/disable toggle and command input in XIV_Databar's Modules options panel
+
+The Travel module works completely unmodified. This addon only adds a `*type2` attribute override on the hearthstone button, appends one tooltip line, and injects a config group.
 
 ## Build & Release
 
-No build step. Pure Lua loaded by the WoW client. The single TOC file (`XIV_Databar_TomeOfTeleportation.toc`) targets Retail (Mainline).
+No build step. Pure Lua loaded by the WoW client. The single TOC file targets Retail (Mainline).
 
 ## Architecture
 
@@ -26,46 +29,38 @@ No build step. Pure Lua loaded by the WoW client. The single TOC file (`XIV_Data
 
 | File | Purpose |
 |------|---------|
-| `XIV_Databar_TomeOfTeleportation.toc` | Addon metadata, declares OptionalDeps on XIV_Databar |
-| `tele.lua` | Entire addon — module definition, frames, config, hooks |
+| `XIV_Databar_TomeOfTeleportation.toc` | Addon metadata, declares OptionalDeps and SavedVariables |
+| `tele.lua` | Hooks, config injection, slash command execution |
 
 ### Integration with XIV_Databar
 
-This addon registers a module on XIV_Databar's AceAddon instance without modifying any XIV_Databar files. Key integration points:
+This addon uses **zero copied code** from XIV_Databar. It hooks two TravelModule methods and injects config at PLAYER_LOGIN:
 
-1. **Addon reference**: Obtained via `LibStub("AceAddon-3.0"):GetAddon()`, trying both `XIV_Databar_Continued` (packaged) and `XIV_Databar-Continued` (dev repo) naming conventions.
+1. **`hooksecurefunc(TravelModule, "OnEnable", ...)`** — Sets `*type2 = 'teleFunction'` on the hearthstone button when enabled. The `*type2` attribute overrides the generic `type` for right-clicks only, so left-click (hearthstone macro) is completely unaffected.
 
-2. **Module registration**: `xb:NewModule("TeleModule", 'AceEvent-3.0')` — registers as a first-class XIV_Databar module. Since our addon loads after XIV_Databar's `OnInitialize` has already iterated modules, AceAddon calls our `OnInitialize`/`OnEnable` immediately.
+2. **`hooksecurefunc(TravelModule, "ShowTooltip", ...)`** — Appends the configured command to the tooltip when hovering the hearthstone button.
 
-3. **Late initialization** (PLAYER_LOGIN): Because we missed XIV_Databar's module iteration in `core.lua`, we manually:
-   - Inject DB defaults into `xb.defaults.profile.modules.tele`
-   - Inject config into XIV_Databar's `_Modules` AceConfig options table via `AceConfigRegistry:GetOptionsTable()`
+3. **Config injection at PLAYER_LOGIN** — Adds a "Tome of Teleportation" group to `AceConfigRegistry`'s modules options table with enable toggle and command input.
 
-4. **Frame registration**: Registers as `travelFrame` (same name as the Travel module) so the bar's layout chain works. Adjacent modules (Gold, System) position themselves relative to `travelFrame`.
+### Slash command execution
 
-5. **Layout hooks**: Gold and System modules hardcode a check on `xb.db.profile.modules.travel.enabled` to decide whether to anchor to `travelFrame`. Since Travel is disabled when using this addon, we `hooksecurefunc` their `Refresh` to override positioning when tele is active.
+Modern WoW makes `SlashCmdList` a metatable proxy — `pairs(SlashCmdList)` returns nothing. To execute an arbitrary slash command, we search `_G` for `SLASH_*` globals matching the target command, extract the handler key name, then call `SlashCmdList[key]` directly.
 
-6. **Shared settings**: Reads hearthstone preferences from XIV_Databar's DB (`selectedHearthstones`, `randomizeHs`) — no duplication of settings.
+### SavedVariables
 
-7. **Locale strings**: Reuses XIV_Databar's locale for shared keys (`Hearthstone`, `Left-Click`, `Right-Click`, `Ready`). Tome-specific strings are hardcoded in English.
+Uses `XIVDatabarTomeOfTeleportationDB` (declared in TOC). Must be initialized at `ADDON_LOADED`, not at file load time — WoW loads SavedVariables between file execution and `ADDON_LOADED`, so a `local db` captured at file scope would point to a stale table.
 
-### TOC Loading Strategy
+### Event timing
 
-Uses `OptionalDeps` (not `Dependencies`) with both naming conventions to handle dev vs packaged folder names. Does NOT use `LoadOnDemand`/`LoadWith` — the addon loads normally at startup, after XIV_Databar (guaranteed by OptionalDeps ordering).
-
-### Bar Layout Chain
-
-XIV_Databar modules position in a chain from right to left:
-
-```
-bar:RIGHT → travelFrame → goldFrame → systemFrame → ...
-```
-
-Each module anchors to the previous one's LEFT edge. Our addon takes the `travelFrame` slot. The user must disable the Travel module to avoid conflicts (both would register the same frame name).
+1. **File load** — hooks are set up (closures reference `db` upvalue, which is nil at this point)
+2. **ADDON_LOADED** — `db` is set to `XIVDatabarTomeOfTeleportationDB` (now loaded from disk)
+3. **PLAYER_LOGIN** — AceAddon fires `OnEnable` for TravelModule → our hook applies the handler; then our PLAYER_LOGIN handler injects config
 
 ## Development Notes
 
-- **No modifications to XIV_Databar**: This addon must never require changes to XIV_Databar files. All integration is done via AceAddon module registration, DB access, AceConfig injection, and hooks.
-- **Combat lockdown**: Check `InCombatLockdown()` before modifying secure frames or button attributes.
-- **Naming robustness**: Always handle both `XIV_Databar_Continued` (underscore, packaged) and `XIV_Databar-Continued` (hyphen, dev repo) addon names.
-- **Testing**: Manual in the WoW client. Enable this module, disable Travel module, verify layout chain, verify hearthstone click and Tome of Teleportation right-click.
+- **No modifications to XIV_Databar**: This addon hooks methods but never modifies XIV_Databar's own tables, frames, or config.
+- **Combat lockdown**: Both the OnEnable hook and the teleFunction check `InCombatLockdown()`.
+- **Naming robustness**: Handles both `XIV_Databar_Continued` (packaged) and `XIV_Databar-Continued` (dev repo) naming.
+- **Do not use `pairs(SlashCmdList)`**: It returns 0 entries in modern WoW. Search `_G` for `SLASH_*` globals instead.
+- **Do not cache SavedVariables at file scope**: Use `ADDON_LOADED` to initialize the `db` reference.
+- **Testing**: Enable Travel module, verify left-click uses hearthstone, right-click runs configured command, config persists across `/reload`.
