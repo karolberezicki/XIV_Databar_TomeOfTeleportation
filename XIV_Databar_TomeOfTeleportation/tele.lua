@@ -80,6 +80,10 @@ end)
 hooksecurefunc(TravelModule, "ShowTooltip", function(self)
     if not db or not db.enabled then return end
     if not self.hearthButton or not self.hearthButton:IsMouseOver() then return end
+    -- Base may bail without building the tooltip (port popup open, or
+    -- tooltips suppressed in combat); only append when it actually showed.
+    if not GameTooltip:IsShown() then return end
+    if self.portButton and not GameTooltip:IsOwned(self.portButton) then return end
 
     local r, g, b = unpack(xb:HoverColors())
     GameTooltip:AddDoubleLine(
