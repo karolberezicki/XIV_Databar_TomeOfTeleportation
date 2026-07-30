@@ -1,4 +1,4 @@
-## Interface: 120007
+## Interface: 120007, 120100
 ## Title: XIV_Databar - Tome of Teleportation
 ## Notes: Right-click the hearthstone in XIV_Databar to open Tome of Teleportation.
 ## Author: Senoy
